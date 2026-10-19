@@ -1,7 +1,7 @@
 """Entry rows for the calendar's day panel and Today's coming-up list."""
 from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel, CaptionLabel, FluentIcon as FIF, StrongBodyLabel, TransparentToolButton,
 )
@@ -47,9 +47,16 @@ class EntryRow(QWidget):
         text.setSpacing(0)
         self.title = BodyLabel(title)
         text.addWidget(self.title)
+        labels = [self.title]
         if subtitle:
             sub = tertiary(CaptionLabel(subtitle))
             text.addWidget(sub)
+            labels.append(sub)
+        for label in labels:
+            # wrap in a narrow column (the calendar's side) instead of widening the row
+            label.setWordWrap(True)
+            label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            label.setMinimumWidth(60)
         row.addLayout(text, 1)
         right = QVBoxLayout()
         right.setSpacing(0)

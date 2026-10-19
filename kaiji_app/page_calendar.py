@@ -6,7 +6,8 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import (
-    BodyLabel, CaptionLabel, FluentIcon as FIF, PrimaryPushButton, PushButton, SimpleCardWidget,
+    BodyLabel, CaptionLabel, FluentIcon as FIF, PrimaryPushButton, PushButton, ScrollArea,
+    SimpleCardWidget,
     StrongBodyLabel, SubtitleLabel, ToolTipFilter, TransparentToolButton, getFont,
 )
 
@@ -314,9 +315,17 @@ class CalendarPage(Page):
         side.addWidget(month_card)
         side.addStretch(1)
         side_widget = QWidget()
+        side_widget.setObjectName("side")
+        side_widget.setStyleSheet("QWidget#side { background: transparent; }")
         side_widget.setLayout(side)
-        side_widget.setFixedWidth(340)
-        body.addWidget(side_widget)
+        # the side scrolls on its own, so a long day doesn't stretch the calendar with it
+        side_scroll = ScrollArea()
+        side_scroll.setWidget(side_widget)
+        side_scroll.setWidgetResizable(True)
+        side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        side_scroll.enableTransparentBackground()
+        side_scroll.setFixedWidth(340)
+        body.addWidget(side_scroll)
         self.vbox.addLayout(body, 1)
 
         app.data_changed.connect(self._data_changed)
