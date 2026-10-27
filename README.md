@@ -18,7 +18,16 @@ Standalone exe: `pip install pyinstaller`, then `build.bat` → `dist\Kaiji\Kaij
 The exe icon is generated from `kaiji_app/icons.py` by `tools/make_ico.py`; extra arguments go
 to PyInstaller (e.g. `build.bat --clean`).
 
+The Android app: `build.bat android` → `dist\Kaiji-release.apk` (needs Flutter and the Android
+SDK, see [mobile/README.md](mobile/README.md)); extra arguments go to `flutter build apk` (e.g.
+`build.bat android --split-per-abi`). `build.bat all` builds both.
+
 Tests for the money logic: `python -m unittest discover tests`.
+
+## On your phone
+
+`mobile/` is Kaiji for Android, written in Flutter: the same pages and the same database, so
+you can back up on one and restore on the other. See [mobile/README.md](mobile/README.md).
 
 ## What it does
 
@@ -87,6 +96,7 @@ PySide6-Fluent-Widgets is GPLv3, so Kaiji is GPLv3 as well when you distribute i
     stat card, amount box); `charts.py` the charts; `entry_list.py` entry rows;
     `dialogs.py` the dialogs; `config.py` paths and settings; `icons.py` the app icon.
 - `tests/test_ledger.py` – tests for repeating dates, balances, left to spend and amounts.
+- `mobile/` – Kaiji for Android (Flutter), with its own README.
 - `%APPDATA%\Kaiji\kaiji.db` – your entries, repeating entries, categories, plan and currency.
 - `%APPDATA%\Kaiji\backups\` – a copy of the database for each of the last 10 days Kaiji ran,
   and one taken before every restore.

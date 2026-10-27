@@ -1,0 +1,13 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+
+formatter:
+  page_width: 100
+
+linter:
+  rules:
+    prefer_single_quotes: true

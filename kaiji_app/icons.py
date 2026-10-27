@@ -13,6 +13,7 @@ def _glyph(p, rect, color):
     font.setBold(True)
     font.setPixelSize(100)
     path = QPainterPath()
+    path.setFillRule(Qt.WindingFill)   # strokes overlap; even-odd would cut holes where they cross
     path.addText(0, 0, font, "花")
     box = path.boundingRect()
     scale = rect.height() * 0.6 / max(box.width(), box.height())
