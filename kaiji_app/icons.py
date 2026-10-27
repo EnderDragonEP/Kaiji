@@ -4,12 +4,13 @@ from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPain
 
 TOP, BOTTOM = QColor("#27c08e"), QColor("#118259")
 SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
+FONT = "Microsoft JhengHei"
 
 
 def _glyph(p, rect, color):
     # Filled as an outline rather than drawn as text: Windows text rendering adds ClearType
     # color fringes at icon sizes, and the outline lets us center the glyph's real shape.
-    font = QFont("Microsoft JhengHei")
+    font = QFont(FONT)
     font.setBold(True)
     font.setPixelSize(100)
     path = QPainterPath()

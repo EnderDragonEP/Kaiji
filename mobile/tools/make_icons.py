@@ -7,9 +7,9 @@ MOBILE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(MOBILE))
 
 from PySide6.QtCore import QRectF, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPixmap  # noqa: E402
+from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QPainter, QPixmap  # noqa: E402
 
-from kaiji_app.icons import _glyph, make_pixmap  # noqa: E402
+from kaiji_app.icons import FONT, _glyph, make_pixmap  # noqa: E402
 
 RES = os.path.join(MOBILE, "android", "app", "src", "main", "res")
 DENSITIES = {"mdpi": 1, "hdpi": 1.5, "xhdpi": 2, "xxhdpi": 3, "xxxhdpi": 4}
@@ -36,6 +36,10 @@ def save(pm, path):
 
 def main():
     QGuiApplication(sys.argv[:1])   # fonts need a GUI application
+    # Without the exe's font Qt quietly draws 花 in another one, and the phone's icon stops
+    # matching; QT_QPA_PLATFORM=offscreen, for one, doesn't see the Windows fonts it needs.
+    if FONT not in QFontDatabase.families():
+        sys.exit(f"{FONT} isn't available to Qt here: run this on Windows, without QT_QPA_PLATFORM")
     for name, scale in DENSITIES.items():
         folder = os.path.join(RES, f"mipmap-{name}")
         save(make_pixmap(round(48 * scale)), os.path.join(folder, "ic_launcher.png"))
