@@ -14,17 +14,20 @@ CREATE TABLE IF NOT EXISTS categories (
     position INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY, day TEXT NOT NULL, kind TEXT NOT NULL, amount INTEGER NOT NULL,
-    category_id INTEGER, note TEXT NOT NULL DEFAULT '', created TEXT NOT NULL);
+    category_id INTEGER, note TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, source TEXT);
 CREATE INDEX IF NOT EXISTS entries_day ON entries (day);
 CREATE TABLE IF NOT EXISTS rules (
     id INTEGER PRIMARY KEY, kind TEXT NOT NULL, amount INTEGER NOT NULL, category_id INTEGER,
     note TEXT NOT NULL DEFAULT '', freq TEXT NOT NULL, every INTEGER NOT NULL DEFAULT 1,
-    start TEXT NOT NULL, until TEXT, times INTEGER);
+    start TEXT NOT NULL, until TEXT, times INTEGER, source TEXT);
 CREATE TABLE IF NOT EXISTS skips (rule_id INTEGER NOT NULL, day TEXT NOT NULL,
     PRIMARY KEY (rule_id, day));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 TABLES = {"categories", "entries", "rules", "skips", "meta"}
+# columns added since the first version: databases and backups from before get them on opening
+ADDED_COLUMNS = [("rules", "times", "INTEGER"), ("entries", "source", "TEXT"),
+                 ("rules", "source", "TEXT")]
 
 DEFAULT_CATEGORIES = [
     ("expense", "Food", "CAFE"), ("expense", "Transport", "BUS"),
@@ -104,9 +107,9 @@ class Store:
     def _prepare(self, currency):
         with self.db:
             self.db.executescript(SCHEMA)
-            # databases (and backups) from before "repeat N times"
-            if "times" not in {row[1] for row in self.db.execute("PRAGMA table_info(rules)")}:
-                self.db.execute("ALTER TABLE rules ADD COLUMN times INTEGER")
+            for table, column, kind in ADDED_COLUMNS:
+                if column not in {row[1] for row in self.db.execute(f"PRAGMA table_info({table})")}:
+                    self.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
             if not self.db.execute("SELECT 1 FROM categories LIMIT 1").fetchone():
                 self.db.executemany(
                     "INSERT INTO categories (kind, name, icon, position) VALUES (?, ?, ?, ?)",
@@ -300,6 +303,43 @@ class Store:
         with self.db:
             self.db.execute("DELETE FROM skips WHERE rule_id = ? AND day = ?",
                             (rule_id, _text(day)))
+
+    # ---- imports: rows another app brought in carry source "<app>:<its id>"
+    def imported_count(self, app):
+        """(entries, repeating entries) an earlier import from app brought in."""
+        like = app + ":%"
+        return tuple(self.db.execute(f"SELECT COUNT(*) FROM {table} WHERE source LIKE ?",
+                                     (like,)).fetchone()[0] for table in ("entries", "rules"))
+
+    def imported_ids(self, app):
+        """(entry ids, rule ids) that came from app."""
+        like = app + ":%"
+        return tuple({r[0] for r in self.db.execute(f"SELECT id FROM {table} WHERE source LIKE ?",
+                                                    (like,))} for table in ("entries", "rules"))
+
+    def replace_imported(self, app, entries, rules):
+        """Swap what an earlier import from app brought in for these, in one transaction.
+        entries: (day, kind, amount, category_id, note, source);
+        rules: (kind, amount, category_id, note, freq, every, start, until, times, skips, source)."""
+        like = app + ":%"
+        now = dt.datetime.now().isoformat(timespec="seconds")
+        with self.db:
+            self.db.execute("DELETE FROM skips WHERE rule_id IN "
+                            "(SELECT id FROM rules WHERE source LIKE ?)", (like,))
+            self.db.execute("DELETE FROM rules WHERE source LIKE ?", (like,))
+            self.db.execute("DELETE FROM entries WHERE source LIKE ?", (like,))
+            self.db.executemany(
+                "INSERT INTO entries (day, kind, amount, category_id, note, created, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(_text(d), k, a, c, n, now, src) for d, k, a, c, n, src in entries])
+            for kind, amount, category_id, note, freq, every, start, until, times, skips, src in rules:
+                rule_id = self.db.execute(
+                    "INSERT INTO rules (kind, amount, category_id, note, freq, every, start, until, "
+                    "times, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (kind, amount, category_id, note, freq, every, _text(start), _text(until), times,
+                     src)).lastrowid
+                self.db.executemany("INSERT OR IGNORE INTO skips VALUES (?, ?)",
+                                    [(rule_id, _text(d)) for d in skips])
 
     # ---- files
     def backup_to(self, path):

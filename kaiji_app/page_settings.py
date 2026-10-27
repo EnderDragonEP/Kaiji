@@ -12,9 +12,11 @@ from qfluentwidgets import (
     SettingCardGroup, ToolTipFilter, TransparentToolButton, themeColor,
 )
 
-from . import money
+from . import cashew, money
 from .config import APP_DIR, APP_TITLE, APP_VERSION, BACKUP_DIR
-from .dialogs import DECIMALS, CategoryDialog, DeleteCategoryDialog, confirm
+from .dialogs import (
+    DECIMALS, CashewExportDialog, CashewImportDialog, CategoryDialog, DeleteCategoryDialog, confirm,
+)
 from .fluent import AmountEdit, Page, category_icon
 from .icons import make_icon
 from .ledger import DAY, describe_rule
@@ -298,6 +300,14 @@ class SettingsPage(Page):
                                   "Save a copy of all your data, or bring one back. Kaiji also "
                                   "keeps a copy of each of the last 10 days you used it.",
                                   restore, backup))
+        from_cashew = PushButton(FIF.FOLDER, "Import…")
+        from_cashew.clicked.connect(self._cashew_import)
+        for_cashew = PushButton(FIF.DOWNLOAD, "Export…")
+        for_cashew.clicked.connect(self._cashew_export)
+        group.addSettingCard(card(FIF.SHARE, "Cashew",
+                                  "Bring in a backup from the Cashew app (Export data file in its "
+                                  "settings), or make a CSV for Cashew's Import CSV",
+                                  from_cashew, for_cashew))
         folder = PushButton(FIF.FOLDER, "Open folder")
         folder.clicked.connect(lambda: os.startfile(APP_DIR))
         group.addSettingCard(card(FIF.FOLDER, "Data folder", APP_DIR, folder))
@@ -351,6 +361,45 @@ class SettingsPage(Page):
             self._tell("error", "Couldn't restore", str(e))
         else:
             self._tell("success", "Restored", os.path.basename(path))
+
+    def _cashew_import(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Import a Cashew backup", "",
+                                              "Cashew backup (*.sql *.sqlite *.db);;All files (*)")
+        if not path:
+            return
+        try:
+            backup = cashew.read_backup(path)
+        except ValueError as e:
+            self._tell("error", "Couldn't import", str(e))
+            return
+        dialog = CashewImportDialog(self.window, self.app, backup, os.path.basename(path))
+        if not dialog.exec():
+            return
+        try:
+            self.app.import_cashew(dialog.plan, dialog.chosen_currency())
+        except Exception as e:      # sqlite3 and OS errors alike
+            self._tell("error", "Couldn't import", str(e))
+        else:
+            self._tell("success", "Imported from Cashew",
+                       f"{len(dialog.plan.entries):,} entries and {len(dialog.plan.rules)} repeating "
+                       "entries. A copy of what was here before is in the backups folder.")
+
+    def _cashew_export(self):
+        dialog = CashewExportDialog(self.window, self.app)
+        if not dialog.exec():
+            return
+        start, end = dialog.values()
+        path, _ = QFileDialog.getSaveFileName(self, "Export for Cashew",
+                                              f"kaiji for cashew {end.isoformat()}.csv", "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            count = cashew.export_csv(path, self.app.ledger, lambda i: self.app.category(i).name,
+                                      start, end)
+        except OSError as e:
+            self._tell("error", "Couldn't save the file", str(e))
+        else:
+            self._tell("success", "Exported for Cashew", f"{count:,} entries · {path}")
 
     # ---- personalization
     def _personalization(self):

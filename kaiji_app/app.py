@@ -8,7 +8,7 @@ import sys
 from PySide6.QtCore import QLockFile, QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from . import fluent, money
+from . import cashew, fluent, money
 from .config import APP_DIR, APP_NAME, APP_TITLE, BACKUP_DIR, DB_PATH, LOCK_PATH, Settings
 from .icons import make_icon
 from .ledger import DAY, Ledger, times_before
@@ -186,6 +186,18 @@ class Kaiji(QObject):
         self.store.backup_to(os.path.join(BACKUP_DIR, f"before restore {stamp}.db"))
         self.store.restore_from(path)
         money.configure(*self.store.currency())
+        self.changed()
+
+    def import_cashew(self, plan, currency=None):
+        """Bring in a planned Cashew import (see cashew.py), after keeping a copy of what's here
+        now; currency: (symbol, decimals) to switch to, or None."""
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        stamp = dt.datetime.now().strftime("%Y-%m-%d %H%M%S")
+        self.store.backup_to(os.path.join(BACKUP_DIR, f"before Cashew import {stamp}.db"))
+        if currency:
+            self.store.set_currency(*currency)
+            money.configure(*currency)
+        cashew.apply(self.store, plan)
         self.changed()
 
     def apply_settings(self, keys):

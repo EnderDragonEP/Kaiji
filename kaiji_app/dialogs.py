@@ -1,17 +1,19 @@
 """Dialogs over the window (QFluentWidgets MessageBoxBase): add or edit an entry or a repeating
-entry, the first-run setup, and adding, editing or deleting a category."""
+entry, the first-run setup, adding, editing or deleting a category, and moving data to and
+from Cashew."""
 import dataclasses
 import datetime as dt
+from collections import Counter
 
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import QButtonGroup, QCompleter, QGridLayout, QHBoxLayout, QWidget
 from qfluentwidgets import (
-    BodyLabel, CalendarPicker, CaptionLabel, ComboBox, CompactSpinBox, EditableComboBox, FlowLayout,
-    FluentIcon as FIF, LineEdit, MessageBox, MessageBoxBase, PillPushButton, PushButton,
-    SegmentedWidget, SubtitleLabel, ToggleToolButton, getFont,
+    BodyLabel, CalendarPicker, CaptionLabel, CheckBox, ComboBox, CompactSpinBox, EditableComboBox,
+    FlowLayout, FluentIcon as FIF, LineEdit, MessageBox, MessageBoxBase, PillPushButton,
+    PushButton, SegmentedWidget, SubtitleLabel, ToggleToolButton, getFont,
 )
 
-from . import money
+from . import cashew, money
 from .fluent import AmountEdit, category_icon, literal, secondary, tertiary, tone
 from .ledger import FREQ_UNITS, add_months, describe_rule, fmt_date, last_date, month_bounds
 from .store import Rule
@@ -533,3 +535,162 @@ class DeleteCategoryDialog(MessageBoxBase):
 
     def move_to(self):
         return self.target.currentData()
+
+
+LEFT_OUT = [   # reason, one, many
+    ("transfer", "transfer between these accounts (they cancel out)",
+     "transfers between these accounts (they cancel out)"),
+    ("unpaid", "unpaid date in the past", "unpaid dates in the past"),
+    ("settled loan", "loan that was paid back", "loans that were paid back"),
+    ("skipped", "skipped date", "skipped dates"),
+    ("ended", "subscription that has ended", "subscriptions that have ended"),
+    ("duplicate", "repeated copy of a subscription", "repeated copies of a subscription"),
+    ("zero", "transaction without an amount", "transactions without an amount"),
+    ("unreadable", "transaction with a date Kaiji can't read",
+     "transactions with a date Kaiji can't read"),
+]
+
+
+def plural(n, one, many):
+    return f"{n:,} {one if n == 1 else many}"
+
+
+class CashewImportDialog(MessageBoxBase):
+    """Which accounts of a Cashew backup to bring in, and what that would add."""
+
+    def __init__(self, window, app, backup, name):
+        super().__init__(window)
+        self.app, self.backup, self.today = app, backup, dt.date.today()
+        self.offered = None                     # the currency the checkbox offers
+        self.viewLayout.addWidget(SubtitleLabel("Import from Cashew"))
+        intro = BodyLabel(f"{name} has {plural(len(backup.rows), 'transaction', 'transactions')}. "
+                          "Kaiji keeps one balance, so the accounts you pick are added up.")
+        intro.setWordWrap(True)
+        self.viewLayout.addWidget(intro)
+        self.viewLayout.addWidget(label("Accounts"))
+        weights = Counter()
+        for w in backup.wallets:
+            if w.currency:
+                weights[w.currency] += w.count + 1
+        main = weights.most_common(1)[0][0] if weights else ""
+        self.checks = {}
+        for w in backup.wallets:
+            box = CheckBox(literal(f"{w.name}  ·  {w.currency or 'no currency set'}  ·  "
+                                   + plural(w.count, "transaction", "transactions")))
+            box.setChecked(not main or w.currency in (main, ""))     # the main currency's accounts
+            box.stateChanged.connect(self._update)
+            self.viewLayout.addWidget(box)
+            self.checks[w.pk] = box
+        self.summary = BodyLabel("")
+        self.summary.setWordWrap(True)
+        self.details = tertiary(CaptionLabel(""))
+        self.details.setWordWrap(True)
+        self.use_currency = CheckBox("")
+        self.viewLayout.addSpacing(6)
+        for w in (self.summary, self.details, self.use_currency):
+            self.viewLayout.addWidget(w)
+        self.yesButton.setText("Import")
+        self.cancelButton.setText("Cancel")
+        self.yesButton.setDefault(True)
+        quiet(self.cancelButton)
+        self.widget.setMinimumWidth(580)
+        self.widget.setMaximumWidth(640)
+        self._update()
+
+    def selected(self):
+        return [pk for pk, box in self.checks.items() if box.isChecked()]
+
+    def chosen_currency(self):
+        """(symbol, decimals) to switch Kaiji to, or None."""
+        return self.offered if self.offered and self.use_currency.isChecked() else None
+
+    def _update(self, *_):
+        plan = self.plan = cashew.plan_import(self.backup, self.selected(), self.today)
+        planned = sum(1 for e in plan.entries if e[0] > self.today)
+        entries = plural(len(plan.entries), "entry", "entries")
+        if planned:
+            entries += f" ({planned:,} of them planned)"
+        self.summary.setText(
+            f"Brings in {entries} and {plural(len(plan.rules), 'repeating entry', 'repeating entries')}, "
+            f"in {plural(len(plan.categories()), 'category', 'categories')} "
+            f"({cashew.new_categories(self.app.store, plan)} new).")
+        notes = []
+        left = [plural(plan.left_out[reason], one, many)
+                for reason, one, many in LEFT_OUT if plan.left_out[reason]]
+        if left:
+            notes.append("Left out: " + "; ".join(left) + ".")
+        before = self.app.store.imported_count(cashew.SOURCE)
+        if any(before):
+            notes.append(f"Replaces the {plural(before[0], 'entry', 'entries')} and "
+                         f"{plural(before[1], 'repeating entry', 'repeating entries')} of the last "
+                         "Cashew import; your own entries stay as they are.")
+        else:
+            notes.append("Your own entries stay as they are. Importing again later replaces this "
+                         "import instead of adding it twice.")
+        selected = set(self.selected())
+        wallets = [w for w in self.backup.wallets if w.pk in selected]
+        currencies = sorted({w.currency for w in wallets if w.currency})
+        if len(currencies) > 1:
+            notes.append(f"These accounts use different currencies ({', '.join(currencies)}), and "
+                         "Kaiji adds them up as they are.")
+        self.details.setText("\n".join(notes))
+
+        offered = None
+        if len(currencies) == 1:
+            code = currencies[0]
+            decimals = min(w.decimals for w in wallets if w.currency == code)
+            offered = (money.SYMBOLS.get(code, code + " "), decimals)
+            if offered == self.app.store.currency():
+                offered = None
+        if offered and offered != self.offered:
+            own = (len(self.app.store.entries()) + len(self.app.store.rules())) - sum(before)
+            self.use_currency.setText(literal(f"Show amounts in {offered[0].strip()} "
+                                              f"({currencies[0]}), like Cashew"))
+            self.use_currency.setChecked(own == 0)      # nothing of Kaiji's own yet: follow Cashew
+        self.offered = offered
+        self.use_currency.setVisible(offered is not None)
+        self.yesButton.setEnabled(bool(plan.entries or plan.rules))
+
+
+class CashewExportDialog(MessageBoxBase):
+    """The dates to put in a CSV for Cashew's Import CSV."""
+
+    def __init__(self, window, app):
+        super().__init__(window)
+        today = dt.date.today()
+        self.viewLayout.addWidget(SubtitleLabel("Export for Cashew"))
+        text = BodyLabel("Makes a CSV for Cashew's Import CSV. Cashew adds every row as a paid "
+                         "transaction to the account selected in Cashew, and makes the categories "
+                         "it doesn't have yet.")
+        text.setWordWrap(True)
+        self.viewLayout.addWidget(text)
+        self.start = picker(min(app.store.first_day() or today, today))
+        self.end = picker(today)
+        dates = QHBoxLayout()
+        dates.setSpacing(8)
+        for w in (label("From"), self.start, label("to"), self.end):
+            dates.addWidget(w)
+        dates.addStretch(1)
+        self.viewLayout.addLayout(dates)
+        self.hint = tertiary(CaptionLabel(
+            "Repeating entries go as their dates in the range, not as subscriptions, and dates "
+            "after today would arrive in Cashew as already paid. Entries that came from Cashew stay "
+            "out. Importing the same file twice in Cashew adds it twice."))
+        self.hint.setWordWrap(True)
+        self.viewLayout.addWidget(self.hint)
+        self.yesButton.setText("Export…")
+        self.cancelButton.setText("Cancel")
+        self.yesButton.setDefault(True)
+        quiet(self.cancelButton, self.start, self.end)
+        self.widget.setMinimumWidth(520)
+        self.widget.setMaximumWidth(600)
+
+    def values(self):
+        return self.start.getDate().toPython(), self.end.getDate().toPython()
+
+    def validate(self):
+        start, end = self.values()
+        if start > end:
+            hint(self.hint, "The first date is after the last one.", critical=True)
+            return False
+        return True

@@ -44,8 +44,32 @@ Tests for the money logic: `python -m unittest discover tests`.
   undone from the notice that appears.
 - **Settings**: your plan (starting balance, savings goal, minimum balance, what "left to spend"
   comes from), currency and decimals, categories (add, rename, change icon, reorder, delete),
-  first day of the week, CSV export, backup and restore, theme and accent color.
+  first day of the week, CSV export, backup and restore, Cashew import and export, theme and
+  accent color.
 - **Amounts** take arithmetic: `120+35`, `3*45`, `1.5k`, `3萬`.
+
+## Cashew
+
+Settings → Your data → Cashew moves data between Kaiji and the
+[Cashew](https://github.com/jameskokoska/Cashew) budgeting app:
+
+- **Import** reads a Cashew backup: in Cashew, *Export data file* in its settings makes
+  `cashew-<date>.sql`. You pick the accounts to bring in (those in Cashew's main currency are
+  picked). Paid transactions become entries, a subscription's next unpaid date becomes a
+  repeating entry from that date (its unpaid past dates are skipped), and an upcoming one-off
+  becomes a planned entry. Categories are matched by name or added with a similar icon;
+  subcategories go to their main category, and a transaction's title and note become the note.
+  Kaiji has one balance, so transfers between the imported accounts cancel out and stay out;
+  open loans count, ones paid back don't. Importing again replaces what the last Cashew import
+  brought in (so change those entries in Cashew), and Kaiji keeps a copy of your data from
+  before each import in the backups folder.
+- **Export** writes a CSV in the layout of Cashew's own export, so Cashew's *Import CSV* maps
+  the columns itself. Cashew adds every row as a paid transaction to the account selected in
+  Cashew, so planned entries are left out by default, repeating entries go as their dates, and
+  entries that came from Cashew stay out. Importing the same file twice in Cashew adds it twice.
+
+There's no live sync: Cashew syncs through its own Google Drive backups, so moving data is a
+file each way.
 
 ## Left to spend
 
@@ -82,12 +106,14 @@ PySide6-Fluent-Widgets is GPLv3, so Kaiji is GPLv3 as well when you distribute i
     navigation and the entry actions (edit, skip, delete with undo); `page_today.py`,
     `page_calendar.py`, `page_stats.py`, `page_repeating.py`, `page_settings.py` the pages.
   - `ledger.py` the money logic: repeating dates, daily balances, the month plan and totals.
-    `store.py` the SQLite database, `money.py` amounts (parsing and formatting).
+    `store.py` the SQLite database, `money.py` amounts (parsing and formatting), `cashew.py`
+    reading Cashew backups and writing CSVs for Cashew.
   - `fluent.py` theme and accent setup, colors, and what QFluentWidgets doesn't have (page,
     stat card, amount box); `charts.py` the charts; `entry_list.py` entry rows;
     `dialogs.py` the dialogs; `config.py` paths and settings; `icons.py` the app icon.
-- `tests/test_ledger.py` – tests for repeating dates, balances, left to spend and amounts.
+- `tests/test_ledger.py` – tests for repeating dates, balances, left to spend and amounts;
+  `tests/test_cashew.py` – the Cashew import and export, on a made-up Cashew backup.
 - `%APPDATA%\Kaiji\kaiji.db` – your entries, repeating entries, categories, plan and currency.
 - `%APPDATA%\Kaiji\backups\` – a copy of the database for each of the last 10 days Kaiji ran,
-  and one taken before every restore.
+  and one taken before every restore or Cashew import.
 - `%APPDATA%\Kaiji\config.json` – theme, accent color, first day of the week.

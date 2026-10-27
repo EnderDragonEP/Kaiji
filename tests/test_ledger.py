@@ -110,6 +110,7 @@ class Occurrences(unittest.TestCase):
 class Balances(unittest.TestCase):
     def setUp(self):
         self.store = Store(":memory:", ("NT$", 0))
+        self.addCleanup(self.store.db.close)
         self.ledger = Ledger(self.store)
         cats = {(c.kind, c.name): c.id for c in self.store.categories()}
         self.food, self.rent = cats["expense", "Food"], cats["expense", "Housing"]
@@ -246,7 +247,9 @@ class Migration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "old.db")
             old = sqlite3.connect(path)
-            old.executescript(store_module.SCHEMA.replace(", times INTEGER", ""))
+            # the first version's schema: no repeat counts, no import sources
+            old.executescript(store_module.SCHEMA.replace(", times INTEGER", "")
+                              .replace(", source TEXT", ""))
             old.execute("INSERT INTO rules (kind, amount, category_id, note, freq, every, start) "
                         "VALUES ('income', 100, NULL, 'Salary', 'month', 1, '2026-01-05')")
             old.commit()
@@ -256,6 +259,8 @@ class Migration(unittest.TestCase):
                 self.assertIsNone(store.rules()[0].times)
                 rid = store.add_rule("expense", 5, None, "", "week", 1, D(2026, 1, 1), times=3)
                 self.assertEqual(store.rule(rid).times, 3)
+                store.replace_imported("cashew", [(D(2026, 1, 2), "expense", 5, None, "", "cashew:x")], [])
+                self.assertEqual(store.imported_count("cashew"), (1, 0))
             finally:
                 store.db.close()
 
