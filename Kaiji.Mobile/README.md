@@ -2,12 +2,13 @@
 
 Kaiji on your phone: the same Today, Calendar, Statistics, Repeating and Settings pages as on
 the PC, the same money logic (ported from `Kaiji.Windows/kaiji_app/ledger.py` and checked against
-it), and the same database file, so a backup made on either one opens on the other.
+it), and the same database file, so a backup made on either one opens on the other - and the
+same optional sync through PostgreSQL.
 
 ## Build and install
 
-From the repository root, `build.bat android` builds it and copies it to
-`dist\Kaiji-release.apk` (`build.bat all` also builds the PC's exe). Or by hand:
+From the repository root, `.\build.ps1 android` builds it and copies it to
+`dist\Kaiji-release.apk` (`.\build.ps1 all` also builds the PC's exe). Or by hand:
 
 ```powershell
 cd Kaiji.Mobile
@@ -27,8 +28,9 @@ Play Store, set up an upload key first (Flutter docs: *Build and release an Andr
 Tests: `flutter test`. They cover amounts and repeating dates (ports of
 `Kaiji.Windows/tests/test_ledger.py`), the database on a real SQLite (including a database from
 the desktop app's first version), the edits behind the menus (change from a date, skip, stop
-after, undo), and widget tests that go through every page on a phone-sized screen in light and
-dark.
+after, undo), sync between two devices (a port of `test_sync.py`; with `KAIJI_TEST_PG` set,
+against PostgreSQL too, as in the main README), and widget tests that go through every page on
+a phone-sized screen in light and dark.
 
 The launcher icons and `assets/kaiji.png` come from the desktop icon:
 `python tools/make_icons.py` (needs PySide6).
@@ -43,6 +45,12 @@ The launcher icons and `assets/kaiji.png` come from the desktop icon:
 A restore replaces everything on that device; on the phone, *Undo* on the notice that follows
 puts back what was there. Theme, first day of the week and wallpaper colors belong to each
 device and aren't part of a backup.
+
+Or let them sync: Settings › *Sync with PostgreSQL*, with the server set up as in the main
+README's "Sync between your PC and phone". The phone syncs while Kaiji is open and once more as
+you leave it, wherever the server can be reached (your home Wi-Fi, say); changes made elsewhere
+wait and go up later. The password stays in the Android Keystore, and Android's own backup
+leaves it out.
 
 ## Differences from the PC
 
@@ -60,10 +68,12 @@ device and aren't part of a backup.
 
 - `lib/main.dart` opens `kaiji.db` and starts the app.
 - `lib/src/` the logic, each a port of the desktop file it names: `money.dart` (money.py),
-  `ledger.dart` (ledger.py), `store.dart` (store.py, the same tables), `app_state.dart` (the
-  controller in app.py), plus `dates.dart` and `models.dart`.
+  `ledger.dart` (ledger.py), `store.dart` (store.py, the same tables), `sync.dart` (sync.py,
+  the same server tables), `app_state.dart` (the controller in app.py), plus `dates.dart` and
+  `models.dart`.
 - `lib/src/ui/` the screens: `home.dart` (theme and navigation), `today_page.dart`,
   `calendar_page.dart`, `stats_page.dart`, `repeating_page.dart`, `settings_page.dart` (with the
-  categories and the first-run setup), `entry_page.dart` (add and edit), `actions.dart` (edit,
-  skip and delete with undo), `charts.dart`, `widgets.dart`, `look.dart` (colors and icons).
+  categories and the first-run setup), `sync_page.dart` (sync's settings and status),
+  `entry_page.dart` (add and edit), `actions.dart` (edit, skip and delete with undo),
+  `charts.dart`, `widgets.dart`, `look.dart` (colors and icons).
 - `test/` the tests; `test/sample.dart` is the made-up data the widget tests use.
