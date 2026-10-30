@@ -8,7 +8,7 @@ import sys
 from PySide6.QtCore import QLockFile, QObject, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from . import fluent, money
+from . import credentials, fluent, money, sync
 from .config import APP_DIR, APP_NAME, APP_TITLE, BACKUP_DIR, DB_PATH, LOCK_PATH, Settings
 from .icons import make_icon
 from .ledger import DAY, Ledger, times_before
@@ -31,6 +31,7 @@ class Kaiji(QObject):
         # past midnight, "today" moves: planned entries become real and the views follow
         self.timer = QTimer(self, interval=30_000, timeout=self._tick)
         self.timer.start()
+        self.syncer = sync.Syncer(self)
         from .main_window import MainWindow
         self.window = MainWindow(self)
 
@@ -62,6 +63,14 @@ class Kaiji(QObject):
 
     # ---- changing
     def changed(self):
+        self.ledger.invalidate()
+        self._categories = self._notes = None
+        self.data_changed.emit()
+        self.syncer.soon()
+
+    def remote_changed(self):
+        """A sync round brought changes from another device."""
+        money.configure(*self.store.currency())
         self.ledger.invalidate()
         self._categories = self._notes = None
         self.data_changed.emit()
@@ -179,14 +188,50 @@ class Kaiji(QObject):
         self.store.delete_category(category_id, move_to)
         self.changed()
 
-    def restore(self, path):
-        """Replace everything with a backup, after keeping a copy of what's there now."""
+    def keep_copy(self, why):
+        """A copy of the database in the backups folder before it's replaced."""
         os.makedirs(BACKUP_DIR, exist_ok=True)
         stamp = dt.datetime.now().strftime("%Y-%m-%d %H%M%S")
-        self.store.backup_to(os.path.join(BACKUP_DIR, f"before restore {stamp}.db"))
+        self.store.backup_to(os.path.join(BACKUP_DIR, f"before {why} {stamp}.db"))
+
+    def restore(self, path):
+        """Replace everything with a backup, after keeping a copy of what's there now. While
+        syncing, the backup replaces the server's data too."""
+        self.keep_copy("restore")
+        self.syncer.stop()                 # a round under way mustn't write over the restore
         self.store.restore_from(path)
+        sync.reset(self.store.db)          # the backup's sync state isn't this device's now
+        if self.settings.sync:
+            sync.set_state(self.store.db, "first", "replace")
+            self.syncer.start()
         money.configure(*self.store.currency())
         self.changed()
+
+    # ---- sync
+    def start_sync(self, values, password, first=None):
+        """Turn sync on with these settings. first: "take" (this device gets the server's data,
+        after keeping a copy of its own), "replace" (the server gets this device's), or None to
+        carry on where it was (the same server, a new password say)."""
+        if first == "take" and sync.has_own_data(self.store.db):
+            self.keep_copy("sync")
+        credentials.save(values["sync_user"], password)
+        for key, value in values.items():
+            setattr(self.settings, key, value)
+        self.settings.sync = True
+        self.settings.save()
+        self.syncer.stop()
+        if first:
+            sync.reset(self.store.db)
+            sync.set_state(self.store.db, "first", first)
+        self.syncer.start()
+
+    def stop_sync(self):
+        """Back to this PC only; its data stays as it is."""
+        self.syncer.stop()
+        self.settings.sync = False
+        self.settings.save()
+        credentials.forget()
+        sync.reset(self.store.db)
 
     def apply_settings(self, keys):
         """React to settings the Settings page just changed."""
@@ -224,6 +269,9 @@ def main():
         pass                      # a missed daily copy shouldn't keep the app from starting
 
     app = Kaiji(qapp, settings, store)
+    if settings.sync:
+        app.syncer.start()
+    qapp.aboutToQuit.connect(app.syncer.flush)
     app.window.show()
     if not settings.welcomed:
         QTimer.singleShot(500, app.window.welcome)

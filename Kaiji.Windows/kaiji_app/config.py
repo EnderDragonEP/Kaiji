@@ -1,5 +1,7 @@
-"""Paths and app settings. Settings are about how the app looks (config.json); everything about
-your money - entries, the plan, the currency - is in the database, so a backup has all of it."""
+"""Paths and app settings. Settings are about this PC - how the app looks, and where it syncs
+(config.json; the password is in Windows Credential Manager, see credentials.py); everything
+about your money - entries, the plan, the currency - is in the database, so a backup has all of
+it."""
 import dataclasses
 import json
 import os
@@ -20,6 +22,12 @@ class Settings:
     theme: str = "system"             # "system", "light" or "dark"
     accent_color: str = ""            # "#rrggbb", or "" for the Windows accent color
     welcomed: bool = False            # the first-run setup was shown
+    sync: bool = False                # sync through PostgreSQL (sync.py)
+    sync_host: str = ""
+    sync_port: int = 5432
+    sync_database: str = "kaiji"
+    sync_user: str = "kaiji"
+    sync_tls: bool = True             # an encrypted connection
 
     @classmethod
     def load(cls):

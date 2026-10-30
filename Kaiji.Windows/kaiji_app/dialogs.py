@@ -1,17 +1,21 @@
 """Dialogs over the window (QFluentWidgets MessageBoxBase): add or edit an entry or a repeating
-entry, the first-run setup, and adding, editing or deleting a category."""
+entry, the first-run setup, adding, editing or deleting a category, and setting up sync."""
 import dataclasses
 import datetime as dt
 
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtWidgets import QButtonGroup, QCompleter, QGridLayout, QHBoxLayout, QWidget
+from PySide6.QtGui import QIntValidator
+from PySide6.QtWidgets import (
+    QApplication, QButtonGroup, QCompleter, QGridLayout, QHBoxLayout, QWidget,
+)
 from qfluentwidgets import (
-    BodyLabel, CalendarPicker, CaptionLabel, ComboBox, CompactSpinBox, EditableComboBox, FlowLayout,
-    FluentIcon as FIF, LineEdit, MessageBox, MessageBoxBase, PillPushButton, PushButton,
-    SegmentedWidget, SubtitleLabel, ToggleToolButton, getFont,
+    BodyLabel, CalendarPicker, CaptionLabel, CheckBox, ComboBox, CompactSpinBox, EditableComboBox,
+    FlowLayout, FluentIcon as FIF, LineEdit, MessageBox, MessageBoxBase, PasswordLineEdit,
+    PillPushButton, PushButton, RadioButton, SegmentedWidget, SubtitleLabel, ToggleToolButton,
+    getFont,
 )
 
-from . import money
+from . import money, sync
 from .fluent import AmountEdit, category_icon, literal, secondary, tertiary, tone
 from .ledger import FREQ_UNITS, add_months, describe_rule, fmt_date, last_date, month_bounds
 from .store import Rule
@@ -533,3 +537,144 @@ class DeleteCategoryDialog(MessageBoxBase):
 
     def move_to(self):
         return self.target.currentData()
+
+
+class SyncDialog(MessageBoxBase):
+    """Where to sync: the server, its database and the sign-in. Connect tries them before the
+    dialog closes, and makes Kaiji's tables on the server if they aren't there yet."""
+
+    def __init__(self, window, settings, password=""):
+        super().__init__(window)
+        self.viewLayout.addWidget(SubtitleLabel("Sync with PostgreSQL"))
+        text = BodyLabel("Kaiji on this PC and on your phone can share their data through your "
+                         "PostgreSQL server. Each keeps its own copy and works without the server; "
+                         "changes go across whenever it can be reached.")
+        text.setWordWrap(True)
+        self.viewLayout.addWidget(text)
+
+        self.host = LineEdit()
+        self.host.setPlaceholderText("Server name or IP address")
+        self.host.setText(settings.sync_host)
+        self.port = LineEdit()
+        self.port.setValidator(QIntValidator(1, 65535, self.port))
+        self.port.setText(str(settings.sync_port))
+        self.port.setFixedWidth(90)
+        self.database = LineEdit()
+        self.database.setText(settings.sync_database)
+        self.user = LineEdit()
+        self.user.setText(settings.sync_user)
+        self.password = PasswordLineEdit()
+        self.password.setText(password)
+        self.tls = CheckBox("Encrypted connection (TLS)")
+        self.tls.setChecked(settings.sync_tls)
+        for edit in (self.host, self.database, self.user, self.password):
+            edit.setFixedWidth(240)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(12)
+        server_row = QHBoxLayout()
+        server_row.setSpacing(8)
+        server_row.addWidget(self.host)
+        server_row.addWidget(BodyLabel("port"))
+        server_row.addWidget(self.port)
+        server_row.addStretch(1)
+        rows = [("Server", server_row), ("Database", self.database), ("User name", self.user),
+                ("Password", self.password), ("", self.tls)]
+        for r, (name, field) in enumerate(rows):
+            if name:
+                grid.addWidget(label(name), r, 0)
+            if isinstance(field, QWidget):
+                grid.addWidget(field, r, 1, Qt.AlignLeft)
+            else:
+                grid.addLayout(field, r, 1)
+        self.viewLayout.addSpacing(4)
+        self.viewLayout.addLayout(grid)
+        self.problem = CaptionLabel()
+        self.problem.setWordWrap(True)
+        self.problem.hide()
+        self.viewLayout.addWidget(self.problem)
+        note = CaptionLabel("The password is kept in Windows Credential Manager, not in Kaiji's "
+                            "files or backups.")
+        note.setWordWrap(True)
+        self.viewLayout.addWidget(tertiary(note))
+        self.yesButton.setText("Connect")
+        self.cancelButton.setText("Cancel")
+        self.yesButton.setDefault(True)
+        quiet(self.cancelButton)
+        self.widget.setMinimumWidth(560)
+        self.widget.setMaximumWidth(560)
+        self.server_empty = False
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        (self.password if self.host.text() else self.host).setFocus()
+
+    def values(self):
+        """The settings to save (the password goes to Credential Manager instead)."""
+        port = self.port.text().strip()
+        return {"sync_host": self.host.text().strip(),
+                "sync_port": int(port) if port.isdigit() else 0,
+                "sync_database": self.database.text().strip(),
+                "sync_user": self.user.text().strip(), "sync_tls": self.tls.isChecked()}
+
+    def validate(self):
+        v = self.values()
+        missing = [edit for edit, key in ((self.host, "sync_host"), (self.port, "sync_port"),
+                                          (self.database, "sync_database"), (self.user, "sync_user"))
+                   if not v[key]]
+        for edit in (self.host, self.port, self.database, self.user):
+            edit.setError(edit in missing)
+        if missing:
+            return False
+        hint(self.problem, f"Connecting to {v['sync_host']}…")
+        self.problem.show()
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
+        try:
+            with sync.Remote(v["sync_host"], v["sync_port"], v["sync_database"], v["sync_user"],
+                             self.password.text(), v["sync_tls"]) as server:
+                self.server_empty = server.prepare()
+        except sync.SyncError as e:
+            hint(self.problem, f"{e}\n{e.detail}" if e.detail else str(e), critical=True)
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+        return True
+
+
+class FirstSyncDialog(MessageBoxBase):
+    """The server and this PC both have data: which of them to keep. Sync doesn't merge them -
+    they're likely copies of each other from earlier backups, and would double up."""
+
+    def __init__(self, window, host):
+        super().__init__(window)
+        self.viewLayout.addWidget(SubtitleLabel("Which data should Kaiji keep?"))
+        text = BodyLabel(f"{host} already has Kaiji data, and so does this PC. One of them "
+                         "replaces the other, so they don't double up.")
+        text.setWordWrap(True)
+        self.viewLayout.addWidget(text)
+        self.take = RadioButton("The server's data")
+        self.replace = RadioButton("This PC's data")
+        for button, about in (
+                (self.take, "This PC gets the server's data. A copy of what's here now goes to "
+                            "the backups folder first."),
+                (self.replace, "The server gets this PC's data, and your other devices get it "
+                               "when they next sync.")):
+            self.viewLayout.addSpacing(4)
+            self.viewLayout.addWidget(button)
+            caption = tertiary(CaptionLabel(about))
+            caption.setWordWrap(True)
+            caption.setContentsMargins(28, 0, 0, 0)
+            self.viewLayout.addWidget(caption)
+        self.take.setChecked(True)
+        self.yesButton.setText("Continue")
+        self.cancelButton.setText("Cancel")
+        self.yesButton.setDefault(True)
+        quiet(self.cancelButton)
+        self.widget.setMinimumWidth(480)
+        self.widget.setMaximumWidth(480)
+
+    def choice(self):
+        """"take" (the server's data) or "replace" (this PC's)."""
+        return "take" if self.take.isChecked() else "replace"

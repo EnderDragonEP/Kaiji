@@ -12,9 +12,11 @@ from qfluentwidgets import (
     SettingCardGroup, ToolTipFilter, TransparentToolButton, themeColor,
 )
 
-from . import money
+from . import credentials, money, sync
 from .config import APP_DIR, APP_TITLE, APP_VERSION, BACKUP_DIR
-from .dialogs import DECIMALS, CategoryDialog, DeleteCategoryDialog, confirm
+from .dialogs import (
+    DECIMALS, CategoryDialog, DeleteCategoryDialog, FirstSyncDialog, SyncDialog, confirm,
+)
 from .fluent import AmountEdit, Page, category_icon
 from .icons import make_icon
 from .ledger import DAY, describe_rule
@@ -77,7 +79,7 @@ class SettingsPage(Page):
         self.groups.setSpacing(28)
         self.groups.setContentsMargins(36, 0, 36, 36)
         for group in (self._plan(), self._currency(), self._categories(), self._calendar(),
-                      self._data(), self._personalization(), self._about()):
+                      self._data(), self._sync(), self._personalization(), self._about()):
             self.groups.addWidget(group)
         app.data_changed.connect(self._data_changed)
 
@@ -341,9 +343,11 @@ class SettingsPage(Page):
     def _restore(self):
         path, _ = QFileDialog.getOpenFileName(self, "Restore a backup", BACKUP_DIR,
                                               "Kaiji backup (*.db)")
+        also = (" Sync is on, so the server and your other devices get the backup's data too."
+                if self.s.sync else "")
         if not path or not confirm(self.window, "Restore this backup?",
                                    "Everything in Kaiji now is replaced by the backup. A copy of what's "
-                                   "there now goes to the backups folder first.", "Restore"):
+                                   "there now goes to the backups folder first." + also, "Restore"):
             return
         try:
             self.app.restore(path)
@@ -351,6 +355,61 @@ class SettingsPage(Page):
             self._tell("error", "Couldn't restore", str(e))
         else:
             self._tell("success", "Restored", os.path.basename(path))
+
+    # ---- sync
+    def _sync(self):
+        group = SettingCardGroup("Sync", self.view)
+        self.sync_setup = PushButton(FIF.EDIT, "Set up…")
+        self.sync_setup.clicked.connect(self._setup_sync)
+        self.sync_now = PushButton(FIF.SYNC, "Sync now")
+        self.sync_now.clicked.connect(lambda: self.app.syncer.sync(manual=True))
+        self.sync_off = PushButton("Turn off")
+        self.sync_off.clicked.connect(self._stop_sync)
+        self.sync_card = card(FIF.CLOUD, "Sync with PostgreSQL", "", self.sync_off, self.sync_now,
+                              self.sync_setup)
+        group.addSettingCard(self.sync_card)
+        self.app.syncer.changed.connect(self._sync_changed)
+        self._sync_changed()
+        return group
+
+    def _sync_changed(self):
+        syncer = self.app.syncer
+        on = syncer.state != "off"
+        self.sync_card.setContent(syncer.describe())
+        self.sync_setup.setText("Change…" if on else "Set up…")
+        self.sync_now.setVisible(on)
+        self.sync_now.setEnabled(not syncer.busy)
+        self.sync_off.setVisible(on)
+        if syncer.report:
+            self._tell(*syncer.report)
+            syncer.report = None
+
+    def _setup_sync(self):
+        s = self.s
+        dialog = SyncDialog(self.window, s, (credentials.load() or "") if s.sync else "")
+        if not dialog.exec():
+            return
+        v = dialog.values()
+        same = s.sync and all(getattr(s, k) == v[k] for k in ("sync_host", "sync_port",
+                                                              "sync_database"))
+        if same:
+            first = None                   # carry on with the same server
+        elif dialog.server_empty:
+            first = "replace"
+        elif not sync.has_own_data(self.app.store.db):
+            first = "take"
+        else:
+            choice = FirstSyncDialog(self.window, v["sync_host"])
+            if not choice.exec():
+                return
+            first = choice.choice()
+        self.app.start_sync(v, dialog.password.text(), first)
+
+    def _stop_sync(self):
+        if confirm(self.window, "Turn off sync?",
+                   "Kaiji on this PC keeps its data, and so does the server, but they no longer "
+                   "share changes. The saved password is removed.", "Turn off"):
+            self.app.stop_sync()
 
     # ---- personalization
     def _personalization(self):

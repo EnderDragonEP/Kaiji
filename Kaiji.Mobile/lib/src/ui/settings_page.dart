@@ -15,6 +15,7 @@ import '../models.dart';
 import '../money.dart' as money;
 import 'actions.dart';
 import 'look.dart';
+import 'sync_page.dart';
 import 'widgets.dart';
 
 const _bases = {'income': "This month's income", 'balance': 'Everything I have'};
@@ -212,6 +213,16 @@ class SettingsPage extends StatelessWidget {
           subtitle: const Text('Replace everything with a backup from this phone or from Kaiji on your PC'),
           onTap: () => _restore(context, state),
         ),
+        ListenableBuilder(
+          listenable: state.syncer,
+          builder: (context, _) => ListTile(
+            leading: const Icon(Icons.cloud_sync_outlined),
+            title: const Text('Sync with PostgreSQL'),
+            subtitle: Text(state.syncer.describe()),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SyncPage())),
+          ),
+        ),
         header('About'),
         ListTile(
           leading: Image.asset('assets/kaiji.png', width: 24, height: 24),
@@ -327,7 +338,10 @@ class SettingsPage extends StatelessWidget {
   Future<void> _restore(BuildContext context, KaijiState state) async {
     final picked = await FilePicker.pickFile(dialogTitle: 'Choose a Kaiji backup');
     if (picked == null || !context.mounted) return;
-    if (!await confirm(context, 'Restore this backup?', 'Everything in Kaiji now is replaced by the backup.',
+    final also = state.syncer.enabled
+        ? ' Sync is on, so the server and your other devices get the backup\'s data too.'
+        : '';
+    if (!await confirm(context, 'Restore this backup?', 'Everything in Kaiji now is replaced by the backup.$also',
         yes: 'Restore')) {
       return;
     }

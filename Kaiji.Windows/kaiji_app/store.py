@@ -1,6 +1,10 @@
 """SQLite storage: entries, repeating rules (with the dates they skip), categories, and the plan
 and currency settings in `meta`. Days are YYYY-MM-DD text, amounts integer cents (always > 0;
-the kind says whether money came in or went out)."""
+the kind says whether money came in or went out).
+
+For sync (sync.py), categories, entries and rules also have a `uid` that's the same on every
+device, and triggers note each change in `sync_changes`. The phone's store.dart has the same
+tables and triggers, so a kaiji.db moves between the two."""
 import dataclasses
 import datetime as dt
 import glob
@@ -11,20 +15,66 @@ import sqlite3
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, icon TEXT NOT NULL,
-    position INTEGER NOT NULL DEFAULT 0);
+    position INTEGER NOT NULL DEFAULT 0, uid TEXT);
 CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY, day TEXT NOT NULL, kind TEXT NOT NULL, amount INTEGER NOT NULL,
-    category_id INTEGER, note TEXT NOT NULL DEFAULT '', created TEXT NOT NULL);
+    category_id INTEGER, note TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, uid TEXT);
 CREATE INDEX IF NOT EXISTS entries_day ON entries (day);
 CREATE TABLE IF NOT EXISTS rules (
     id INTEGER PRIMARY KEY, kind TEXT NOT NULL, amount INTEGER NOT NULL, category_id INTEGER,
     note TEXT NOT NULL DEFAULT '', freq TEXT NOT NULL, every INTEGER NOT NULL DEFAULT 1,
-    start TEXT NOT NULL, until TEXT, times INTEGER);
+    start TEXT NOT NULL, until TEXT, times INTEGER, uid TEXT);
 CREATE TABLE IF NOT EXISTS skips (rule_id INTEGER NOT NULL, day TEXT NOT NULL,
     PRIMARY KEY (rule_id, day));
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 TABLES = {"categories", "entries", "rules", "skips", "meta"}
+# columns added since the first version: databases and backups from before get them
+ADDED = [("rules", "times", "INTEGER"), ("categories", "uid", "TEXT"), ("entries", "uid", "TEXT"),
+         ("rules", "uid", "TEXT")]
+
+
+def _noted(table, key):
+    """Trigger statements that put (table, key) at the end of sync_changes. Delete and insert
+    rather than INSERT OR REPLACE: in a trigger, the conflict policy of the statement that fired it
+    wins, and INSERT OR IGNORE INTO skips would keep the old seq."""
+    return (f"DELETE FROM sync_changes WHERE tbl = '{table}' AND uid = {key}; "
+            f"INSERT INTO sync_changes (tbl, uid) VALUES ('{table}', {key});")
+
+
+def _sync_schema():
+    statements = [
+        "CREATE TABLE IF NOT EXISTS sync_changes (seq INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "tbl TEXT NOT NULL, uid TEXT NOT NULL, UNIQUE (tbl, uid))",
+        "CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT)",
+    ]
+    for table in ("categories", "entries", "rules"):
+        statements += [
+            f"UPDATE {table} SET uid = lower(hex(randomblob(16))) WHERE uid IS NULL",
+            f"CREATE UNIQUE INDEX IF NOT EXISTS {table}_uid ON {table} (uid)",
+            # a new row gets its uid here: ALTER TABLE can't add a column with a random default
+            f"CREATE TRIGGER IF NOT EXISTS {table}_sync_insert AFTER INSERT ON {table} BEGIN "
+            f"UPDATE {table} SET uid = lower(hex(randomblob(16))) WHERE id = NEW.id AND uid IS NULL; "
+            + _noted(table, f"(SELECT uid FROM {table} WHERE id = NEW.id)") + " END",
+            f"CREATE TRIGGER IF NOT EXISTS {table}_sync_update AFTER UPDATE ON {table} "
+            f"WHEN NEW.uid IS NOT NULL BEGIN " + _noted(table, "NEW.uid") + " END",
+            f"CREATE TRIGGER IF NOT EXISTS {table}_sync_delete AFTER DELETE ON {table} "
+            f"WHEN OLD.uid IS NOT NULL BEGIN " + _noted(table, "OLD.uid") + " END",
+        ]
+    # skips go to the server with their rule
+    for event, row in (("insert", "NEW"), ("delete", "OLD")):
+        rule = f"(SELECT uid FROM rules WHERE id = {row}.rule_id)"
+        statements.append(
+            f"CREATE TRIGGER IF NOT EXISTS skips_sync_{event} AFTER {event.upper()} ON skips "
+            f"WHEN {rule} IS NOT NULL BEGIN " + _noted("rules", rule) + " END")
+    for event, row in (("insert", "NEW"), ("update", "NEW"), ("delete", "OLD")):
+        statements.append(
+            f"CREATE TRIGGER IF NOT EXISTS meta_sync_{event} AFTER {event.upper()} ON meta BEGIN "
+            + _noted("meta", f"{row}.key") + " END")
+    return statements
+
+
+SYNC_SCHEMA = _sync_schema()
 
 DEFAULT_CATEGORIES = [
     ("expense", "Food", "CAFE"), ("expense", "Transport", "BUS"),
@@ -104,9 +154,11 @@ class Store:
     def _prepare(self, currency):
         with self.db:
             self.db.executescript(SCHEMA)
-            # databases (and backups) from before "repeat N times"
-            if "times" not in {row[1] for row in self.db.execute("PRAGMA table_info(rules)")}:
-                self.db.execute("ALTER TABLE rules ADD COLUMN times INTEGER")
+            for table, column, kind in ADDED:
+                if column not in {row[1] for row in self.db.execute(f"PRAGMA table_info({table})")}:
+                    self.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+            for statement in SYNC_SCHEMA:
+                self.db.execute(statement)
             if not self.db.execute("SELECT 1 FROM categories LIMIT 1").fetchone():
                 self.db.executemany(
                     "INSERT INTO categories (kind, name, icon, position) VALUES (?, ?, ?, ?)",

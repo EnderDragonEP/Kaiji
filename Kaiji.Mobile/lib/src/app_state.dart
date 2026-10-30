@@ -11,6 +11,7 @@ import 'ledger.dart';
 import 'models.dart';
 import 'money.dart' as money;
 import 'store.dart';
+import 'sync.dart' as sync;
 
 const uncategorized = Category(0, 'expense', 'Uncategorized', 'TAG');
 
@@ -49,6 +50,7 @@ class EntryValues {
 class KaijiState extends ChangeNotifier {
   KaijiState(this.store, this.data, this.prefs, {this.wallpaper}) {
     _rebuild();
+    syncer = sync.Syncer(store: store, prefs: prefs, onChanged: () => changed(local: false));
   }
 
   static Future<KaijiState> open(Store store, {Color? wallpaper}) async =>
@@ -58,6 +60,7 @@ class KaijiState extends ChangeNotifier {
   final SharedPreferences prefs;
   final Color? wallpaper; // the phone's own color (Android 12+), if it has one
   KaijiData data;
+  late final sync.Syncer syncer; // sync through PostgreSQL, when it's on
   late Ledger ledger;
   late Map<int, Category> _categories;
   late Map<int, Rule> _rules;
@@ -126,10 +129,12 @@ class KaijiState extends ChangeNotifier {
     return counts.entries.reduce((a, b) => b.value > a.value ? b : a).key;
   }
 
-  Future<void> changed() async {
+  /// Load the data again after a change: made here ([local]), or brought by sync.
+  Future<void> changed({bool local = true}) async {
     data = await store.load();
     _rebuild();
     notifyListeners();
+    if (local) syncer.soon();
   }
 
   // ---- changing (each returns once it's saved and the screens have the new data)
@@ -258,8 +263,15 @@ class KaijiState extends ChangeNotifier {
     await changed();
   }
 
+  /// Replace everything with a backup. While syncing, the backup replaces the server's data too.
   Future<void> restore(String path) async {
+    await syncer.stop(); // a round under way mustn't write over the restore
     await store.restoreFrom(path);
+    await sync.reset(store.db); // the backup's sync state isn't this phone's now
+    if (syncer.enabled) {
+      await sync.setSyncState(store.db, 'first', 'replace');
+      await syncer.start();
+    }
     await changed();
   }
 }

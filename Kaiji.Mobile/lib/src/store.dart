@@ -2,6 +2,9 @@
 /// dates they skip, categories, and the plan and currency in `meta`. Days are YYYY-MM-DD text,
 /// amounts integer cents. Because the tables match, a kaiji.db from the PC opens here and the
 /// other way round.
+///
+/// For sync (sync.dart), categories, entries and rules also have a `uid` that's the same on every
+/// device, and triggers note each change in `sync_changes`, the same triggers as store.py's.
 library;
 
 import 'dart:io';
@@ -14,22 +17,59 @@ import 'models.dart';
 const _schema = [
   '''CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, icon TEXT NOT NULL,
-    position INTEGER NOT NULL DEFAULT 0)''',
+    position INTEGER NOT NULL DEFAULT 0, uid TEXT)''',
   '''CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY, day TEXT NOT NULL, kind TEXT NOT NULL, amount INTEGER NOT NULL,
-    category_id INTEGER, note TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, source TEXT)''',
+    category_id INTEGER, note TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, source TEXT, uid TEXT)''',
   'CREATE INDEX IF NOT EXISTS entries_day ON entries (day)',
   '''CREATE TABLE IF NOT EXISTS rules (
     id INTEGER PRIMARY KEY, kind TEXT NOT NULL, amount INTEGER NOT NULL, category_id INTEGER,
     note TEXT NOT NULL DEFAULT '', freq TEXT NOT NULL, every INTEGER NOT NULL DEFAULT 1,
-    start TEXT NOT NULL, until TEXT, times INTEGER, source TEXT)''',
+    start TEXT NOT NULL, until TEXT, times INTEGER, source TEXT, uid TEXT)''',
   '''CREATE TABLE IF NOT EXISTS skips (rule_id INTEGER NOT NULL, day TEXT NOT NULL,
     PRIMARY KEY (rule_id, day))''',
   'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)',
 ];
 const tables = {'categories', 'entries', 'rules', 'skips', 'meta'};
 // columns added since the desktop app's first version
-const _added = [('rules', 'times', 'INTEGER'), ('entries', 'source', 'TEXT'), ('rules', 'source', 'TEXT')];
+const _added = [
+  ('rules', 'times', 'INTEGER'), ('entries', 'source', 'TEXT'), ('rules', 'source', 'TEXT'),
+  ('categories', 'uid', 'TEXT'), ('entries', 'uid', 'TEXT'), ('rules', 'uid', 'TEXT'),
+];
+
+/// Trigger statements that put (table, key) at the end of sync_changes. Delete and insert rather
+/// than INSERT OR REPLACE: in a trigger, the conflict policy of the statement that fired it wins,
+/// and INSERT OR IGNORE INTO skips would keep the old seq.
+String _noted(String table, String key) =>
+    "DELETE FROM sync_changes WHERE tbl = '$table' AND uid = $key; "
+    "INSERT INTO sync_changes (tbl, uid) VALUES ('$table', $key);";
+
+/// The sync tables, uids and triggers: word for word store.py's SYNC_SCHEMA.
+final syncSchema = [
+  'CREATE TABLE IF NOT EXISTS sync_changes (seq INTEGER PRIMARY KEY AUTOINCREMENT, '
+      'tbl TEXT NOT NULL, uid TEXT NOT NULL, UNIQUE (tbl, uid))',
+  'CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT)',
+  for (final table in ['categories', 'entries', 'rules']) ...[
+    'UPDATE $table SET uid = lower(hex(randomblob(16))) WHERE uid IS NULL',
+    'CREATE UNIQUE INDEX IF NOT EXISTS ${table}_uid ON $table (uid)',
+    // a new row gets its uid here: ALTER TABLE can't add a column with a random default
+    'CREATE TRIGGER IF NOT EXISTS ${table}_sync_insert AFTER INSERT ON $table BEGIN '
+        'UPDATE $table SET uid = lower(hex(randomblob(16))) WHERE id = NEW.id AND uid IS NULL; '
+        '${_noted(table, '(SELECT uid FROM $table WHERE id = NEW.id)')} END',
+    'CREATE TRIGGER IF NOT EXISTS ${table}_sync_update AFTER UPDATE ON $table '
+        'WHEN NEW.uid IS NOT NULL BEGIN ${_noted(table, 'NEW.uid')} END',
+    'CREATE TRIGGER IF NOT EXISTS ${table}_sync_delete AFTER DELETE ON $table '
+        'WHEN OLD.uid IS NOT NULL BEGIN ${_noted(table, 'OLD.uid')} END',
+  ],
+  // skips go to the server with their rule
+  for (final (event, row) in [('insert', 'NEW'), ('delete', 'OLD')])
+    'CREATE TRIGGER IF NOT EXISTS skips_sync_$event AFTER ${event.toUpperCase()} ON skips '
+        'WHEN (SELECT uid FROM rules WHERE id = $row.rule_id) IS NOT NULL BEGIN '
+        '${_noted('rules', '(SELECT uid FROM rules WHERE id = $row.rule_id)')} END',
+  for (final (event, row) in [('insert', 'NEW'), ('update', 'NEW'), ('delete', 'OLD')])
+    'CREATE TRIGGER IF NOT EXISTS meta_sync_$event AFTER ${event.toUpperCase()} ON meta BEGIN '
+        '${_noted('meta', '$row.key')} END',
+];
 
 const defaultCategories = [
   ('expense', 'Food', 'CAFE'), ('expense', 'Transport', 'BUS'),
@@ -80,6 +120,9 @@ class Store {
         if (!columns.any((c) => c['name'] == column)) {
           await t.execute('ALTER TABLE $table ADD COLUMN $column $kind');
         }
+      }
+      for (final statement in syncSchema) {
+        await t.execute(statement);
       }
       if ((await t.rawQuery('SELECT 1 FROM categories LIMIT 1')).isEmpty) {
         var position = 0;

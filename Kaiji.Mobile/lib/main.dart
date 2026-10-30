@@ -11,13 +11,17 @@ import 'src/app_state.dart';
 import 'src/money.dart' as money;
 import 'src/store.dart';
 import 'src/ui/home.dart';
+import 'src/ui/widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final country = WidgetsBinding.instance.platformDispatcher.locale.countryCode;
   final store = await Store.open(databaseFactory, p.join(await getDatabasesPath(), 'kaiji.db'),
       currency: money.defaultsFor(money.currencyOf(country)));
-  runApp(KaijiApp(state: await KaijiState.open(store, wallpaper: await _wallpaper())));
+  final state = await KaijiState.open(store, wallpaper: await _wallpaper());
+  state.syncer.onReport = showMessage;
+  if (state.syncer.enabled) await state.syncer.start();
+  runApp(KaijiApp(state: state));
 }
 
 /// The color Android 12 and later take from the wallpaper, or null on older phones.

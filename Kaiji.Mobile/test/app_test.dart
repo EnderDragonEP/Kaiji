@@ -6,6 +6,7 @@ import 'package:kaiji/src/app_state.dart';
 import 'package:kaiji/src/dates.dart';
 import 'package:kaiji/src/store.dart';
 import 'package:kaiji/src/ui/home.dart';
+import 'package:kaiji/src/ui/settings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -140,5 +141,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(state.kindCategories('expense').last.name, 'Pets');
     expect(find.text('Pets'), findsOneWidget);
+  });
+
+  testWidgets('sync is off until set up, and Connect waits for a server', (tester) async {
+    final state = await start(tester);
+    await tester.tap(nav('Settings'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Sync with PostgreSQL'), 300,
+        scrollable: find.descendant(of: find.byType(SettingsPage), matching: find.byType(Scrollable)).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Off: your data is only on this phone'), findsOneWidget);
+    await tester.tap(find.text('Sync with PostgreSQL'));
+    await tester.pumpAndSettle();
+    final connect = find.widgetWithText(FilledButton, 'Connect');
+    expect(tester.widget<FilledButton>(connect).onPressed, isNull); // no server yet
+    await tester.enterText(find.widgetWithText(TextField, 'Server'), '192.168.1.150');
+    await tester.pump();
+    expect(tester.widget<FilledButton>(connect).onPressed, isNotNull);
+    expect(state.syncer.enabled, isFalse);
+    expect(tester.takeException(), isNull);
   });
 }
