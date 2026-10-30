@@ -15,9 +15,13 @@ function Build-Exe([string[]]$extra) {
     # kaiji_app lives in Kaiji.Windows; psycopg loads its libpq from psycopg_binary, which
     # PyInstaller only finds when told
     $env:PYTHONPATH = "$here\Kaiji.Windows;$env:PYTHONPATH"
+    # The widget library's optional blur imports SciPy, Pillow and NumPy (Kaiji doesn't use it),
+    # and SciPy in turn reaches an installed PyTorch: left in, they'd make the exe gigabytes.
+    $unused = 'numpy', 'scipy', 'PIL', 'colorthief', 'torch', 'tkinter'
     pyinstaller --noconfirm --windowed --name Kaiji --icon "$here\build\Kaiji.ico" `
         --collect-submodules kaiji_app --collect-all psycopg_binary `
         --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtQuick `
+        @($unused | ForEach-Object { '--exclude-module', $_ }) `
         @extra Kaiji.Windows\Kaiji.pyw
     if ($LASTEXITCODE) { throw "PyInstaller failed" }
 }
