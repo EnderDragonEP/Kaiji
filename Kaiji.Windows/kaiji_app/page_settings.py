@@ -453,6 +453,6 @@ class SettingsPage(Page):
         welcome.clicked.connect(self.window.welcome)
         group.addSettingCard(card(make_icon(), APP_TITLE,
                                   f"Version {APP_VERSION} · A monthly spending tracker with a calendar "
-                                  "that looks ahead. Built with PySide6-Fluent-Widgets (GPLv3).",
+                                  "that looks ahead.",
                                   welcome))
         return group
