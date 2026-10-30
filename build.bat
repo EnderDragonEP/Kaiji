@@ -2,7 +2,7 @@
 rem Build Kaiji:
 rem   build.bat [args]          dist\Kaiji\Kaiji.exe; args go to PyInstaller (needs: pip install pyinstaller)
 rem   build.bat android [args]  dist\Kaiji-release.apk, the Android app; args go to flutter build apk,
-rem                             e.g. --split-per-abi (needs Flutter and the Android SDK, see mobile\README.md)
+rem                             e.g. --split-per-abi (needs Flutter and the Android SDK, see Kaiji.Mobile\README.md)
 rem   build.bat all             both
 setlocal
 set "here=%~dp0"
@@ -24,21 +24,23 @@ call :apk
 exit /b %errorlevel%
 
 :exe
-python tools\make_ico.py build\Kaiji.ico || exit /b 1
+python Kaiji.Windows\tools\make_ico.py build\Kaiji.ico || exit /b 1
+rem kaiji_app lives in Kaiji.Windows
+set "PYTHONPATH=%here%Kaiji.Windows;%PYTHONPATH%"
 pyinstaller --noconfirm --windowed --name Kaiji --icon "%here%build\Kaiji.ico" ^
   --collect-submodules kaiji_app ^
   --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtQuick ^
-  %* Kaiji.pyw
+  %* Kaiji.Windows\Kaiji.pyw
 exit /b
 
 :apk
 rem Flutter from PATH, or from %USERPROFILE%\flutter (where it was installed for Kaiji)
 where flutter >nul 2>&1 || set "PATH=%USERPROFILE%\flutter\bin;%PATH%"
-where flutter >nul 2>&1 || (echo Flutter isn't on PATH: see mobile\README.md & exit /b 1)
-set "out=%here%mobile\build\app\outputs\flutter-apk"
+where flutter >nul 2>&1 || (echo Flutter isn't on PATH: see Kaiji.Mobile\README.md & exit /b 1)
+set "out=%here%Kaiji.Mobile\build\app\outputs\flutter-apk"
 rem clear out earlier APKs, so only what this build makes goes to dist
 if exist "%out%\app-*.apk" del /q "%out%\app-*.apk"
-pushd "%here%mobile"
+pushd "%here%Kaiji.Mobile"
 call flutter build apk %*
 if errorlevel 1 (popd & exit /b 1)
 popd

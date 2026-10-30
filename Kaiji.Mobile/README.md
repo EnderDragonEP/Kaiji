@@ -1,8 +1,8 @@
 # Kaiji 花錢 for Android
 
 Kaiji on your phone: the same Today, Calendar, Statistics, Repeating and Settings pages as on
-the PC, the same money logic (ported from `kaiji_app/ledger.py` and checked against it), and the
-same database file, so a backup made on either one opens on the other.
+the PC, the same money logic (ported from `Kaiji.Windows/kaiji_app/ledger.py` and checked against
+it), and the same database file, so a backup made on either one opens on the other.
 
 ## Build and install
 
@@ -10,7 +10,7 @@ From the repository root, `build.bat android` builds it and copies it to
 `dist\Kaiji-release.apk` (`build.bat all` also builds the PC's exe). Or by hand:
 
 ```powershell
-cd mobile
+cd Kaiji.Mobile
 flutter pub get
 flutter build apk --release   # → build\app\outputs\flutter-apk\app-release.apk
 flutter install               # phone plugged in, with USB debugging on
@@ -25,9 +25,10 @@ The release APK is signed with Flutter's debug key, which is fine for your own p
 Play Store, set up an upload key first (Flutter docs: *Build and release an Android app*).
 
 Tests: `flutter test`. They cover amounts and repeating dates (ports of
-`tests/test_ledger.py`), the database on a real SQLite (including a database from the desktop
-app's first version), the edits behind the menus (change from a date, skip, stop after, undo),
-and widget tests that go through every page on a phone-sized screen in light and dark.
+`Kaiji.Windows/tests/test_ledger.py`), the database on a real SQLite (including a database from
+the desktop app's first version), the edits behind the menus (change from a date, skip, stop
+after, undo), and widget tests that go through every page on a phone-sized screen in light and
+dark.
 
 The launcher icons and `assets/kaiji.png` come from the desktop icon:
 `python tools/make_icons.py` (needs PySide6).

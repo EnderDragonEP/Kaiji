@@ -1,10 +1,10 @@
-"""Write the Android launcher icons and the in-app logo from the desktop icon (kaiji_app/icons.py):
-python mobile/tools/make_icons.py"""
+"""Write the Android launcher icons and the in-app logo from the desktop icon
+(Kaiji.Windows/kaiji_app/icons.py): python Kaiji.Mobile/tools/make_icons.py"""
 import os
 import sys
 
 MOBILE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(MOBILE))
+sys.path.insert(0, os.path.join(os.path.dirname(MOBILE), "Kaiji.Windows"))
 
 from PySide6.QtCore import QRectF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QPainter, QPixmap  # noqa: E402

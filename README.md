@@ -7,27 +7,28 @@ be on any day and how much you can still spend this month.
 ## Run
 
 ```powershell
-pip install -r requirements.txt
-pythonw Kaiji.pyw            # or double-click Kaiji.pyw
+pip install -r Kaiji.Windows\requirements.txt
+pythonw Kaiji.Windows\Kaiji.pyw   # or double-click Kaiji.pyw
 ```
 
 On first run Kaiji asks for your currency, what you have today, and (optionally) your monthly
 pay and savings goal. Everything can be changed later in Settings.
 
 Standalone exe: `pip install pyinstaller`, then `build.bat` → `dist\Kaiji\Kaiji.exe`.
-The exe icon is generated from `kaiji_app/icons.py` by `tools/make_ico.py`; extra arguments go
-to PyInstaller (e.g. `build.bat --clean`).
+The exe icon is generated from `Kaiji.Windows/kaiji_app/icons.py` by
+`Kaiji.Windows/tools/make_ico.py`; extra arguments go to PyInstaller (e.g. `build.bat --clean`).
 
 The Android app: `build.bat android` → `dist\Kaiji-release.apk` (needs Flutter and the Android
-SDK, see [mobile/README.md](mobile/README.md)); extra arguments go to `flutter build apk` (e.g.
-`build.bat android --split-per-abi`). `build.bat all` builds both.
+SDK, see [Kaiji.Mobile/README.md](Kaiji.Mobile/README.md)); extra arguments go to
+`flutter build apk` (e.g. `build.bat android --split-per-abi`). `build.bat all` builds both.
 
-Tests for the money logic: `python -m unittest discover tests`.
+Tests for the money logic: `python -m unittest discover Kaiji.Windows\tests`.
 
 ## On your phone
 
-`mobile/` is Kaiji for Android, written in Flutter: the same pages and the same database, so
-you can back up on one and restore on the other. See [mobile/README.md](mobile/README.md).
+`Kaiji.Mobile/` is Kaiji for Android, written in Flutter: the same pages and the same database,
+so you can back up on one and restore on the other. See
+[Kaiji.Mobile/README.md](Kaiji.Mobile/README.md).
 
 ## What it does
 
@@ -86,7 +87,9 @@ PySide6-Fluent-Widgets is GPLv3, so Kaiji is GPLv3 as well when you distribute i
 
 ## Files
 
-- `kaiji_app/` – the app:
+- `Kaiji.Windows/` – Kaiji for Windows: `Kaiji.pyw` starts it; `requirements.txt`;
+  `tools/make_ico.py` the exe icon.
+- `Kaiji.Windows/kaiji_app/` – the app:
   - `app.py` the controller that owns the data, and `main()`; `main_window.py` the window,
     navigation and the entry actions (edit, skip, delete with undo); `page_today.py`,
     `page_calendar.py`, `page_stats.py`, `page_repeating.py`, `page_settings.py` the pages.
@@ -95,8 +98,9 @@ PySide6-Fluent-Widgets is GPLv3, so Kaiji is GPLv3 as well when you distribute i
   - `fluent.py` theme and accent setup, colors, and what QFluentWidgets doesn't have (page,
     stat card, amount box); `charts.py` the charts; `entry_list.py` entry rows;
     `dialogs.py` the dialogs; `config.py` paths and settings; `icons.py` the app icon.
-- `tests/test_ledger.py` – tests for repeating dates, balances, left to spend and amounts.
-- `mobile/` – Kaiji for Android (Flutter), with its own README.
+- `Kaiji.Windows/tests/test_ledger.py` – tests for repeating dates, balances, left to spend and
+  amounts.
+- `Kaiji.Mobile/` – Kaiji for Android (Flutter), with its own README.
 - `%APPDATA%\Kaiji\kaiji.db` – your entries, repeating entries, categories, plan and currency.
 - `%APPDATA%\Kaiji\backups\` – a copy of the database for each of the last 10 days Kaiji ran,
   and one taken before every restore.
