@@ -96,7 +96,9 @@ CREATE DATABASE kaiji OWNER kaiji;
 REVOKE ALL ON DATABASE kaiji FROM PUBLIC;
 ```
 
-`\password` asks for the password, so it doesn't end up in psql's history or the server's log. Then let the devices on your network in with a line in `pg_hba.conf`, above any line that would match them first, and reload the server (`SELECT pg_reload_conf();`):
+`\password` asks for the password, so it doesn't end up in psql's history or the server's log.
+
+Then the devices on your network need to be let in. Many servers already let password logins in from anywhere (the official Docker image does, with `host all all all scram-sha-256` in `pg_hba.conf`); if yours doesn't, add a line to `pg_hba.conf`, above any line that would match them first, and reload the server (`SELECT pg_reload_conf();`):
 
 ```text
 # TYPE   DATABASE  USER   ADDRESS          METHOD
@@ -104,6 +106,31 @@ hostssl  kaiji     kaiji  192.168.1.0/24   scram-sha-256
 ```
 
 If the server has no TLS set up, use `host` instead of `hostssl`, and turn off **Encrypted connection** in Kaiji. Kaiji makes its tables itself, in a `kaiji` schema, the first time it connects.
+
+<details markdown="1">
+<summary>On Home Assistant, with the Postgres 17 app</summary>
+
+The [Postgres 17 app](https://github.com/alexbelgium/hassio-addons/tree/master/postgres_17) runs the official PostgreSQL image in a container called `app_db21ed7f_postgres_latest`. Open `psql` inside it to run the SQL above:
+
+- **Portainer:** Containers → `app_db21ed7f_postgres_latest` → **Console**, with `/bin/bash` as `root`, then `psql -U postgres`.
+- **A terminal that has `docker`** (the Advanced SSH & Web Terminal app, with Protection mode off): `docker exec -it app_db21ed7f_postgres_latest psql -U postgres`.
+
+Inside the container, `psql` doesn't ask for a password. If you set `POSTGRES_USER` in the app's options, use that name instead of `postgres`.
+
+`pg_hba.conf` needs no new line: the image already lets password logins in from anywhere, and your other apps likely rely on that, so leave the file as it is. To see for yourself, run `grep -v '^#' /config/database/pg_hba.conf | grep .` in the container's console.
+
+The app runs without TLS, so turn off **Encrypted connection** in Kaiji. To keep it on instead, make a certificate in the container's console (as `root`), then restart the app once. Your other apps lose their connection for a moment, and those that don't use TLS carry on as before.
+
+```bash
+cd /config/database
+openssl req -new -x509 -days 3650 -nodes -subj "/CN=homeassistant" -out server.crt -keyout server.key
+chown postgres:postgres server.crt server.key && chmod 600 server.key
+echo "ssl = on" >> /config/postgresql.conf
+```
+
+Kaiji's database then goes into your Home Assistant backups along with the app's other data.
+
+</details>
 
 ### Connecting
 
