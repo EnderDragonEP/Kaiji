@@ -4,7 +4,7 @@ __pycache__/
 .venv/
 venv/
 
-# Build output (Kaiji.exe, the Android APK) - regenerate with build.bat
+# Build output (Kaiji.exe, the Android APK) - regenerate with build.ps1
 build/
 dist/
 *.spec
