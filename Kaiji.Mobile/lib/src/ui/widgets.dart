@@ -21,6 +21,33 @@ class KaijiScope extends InheritedNotifier<KaijiState> {
   static KaijiState read(BuildContext context) => context.getInheritedWidgetOfExactType<KaijiScope>()!.notifier!;
 }
 
+/// Pull down to sync, while sync is on; a page as it is otherwise. The spinner stays until the
+/// round is done, and the round's own message says how it went.
+class SyncRefresh extends StatelessWidget {
+  const SyncRefresh({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final syncer = KaijiScope.read(context).syncer;
+    return ListenableBuilder(
+      listenable: syncer,
+      builder: (context, _) {
+        if (syncer.state == 'off') return child;
+        return RefreshIndicator(
+          onRefresh: () => syncer.sync(manual: true),
+          // short pages can be pulled down too
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context)
+                .copyWith(physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics())),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
 String plural(int n, String one, String many) {
   final digits = n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
   return '$digits ${n == 1 ? one : many}';

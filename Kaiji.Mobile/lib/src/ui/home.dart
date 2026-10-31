@@ -81,11 +81,14 @@ class _HomeShellState extends State<HomeShell> {
       },
       child: Scaffold(
         body: IndexedStack(index: page, children: [
-          const TodayPage(),
-          CalendarPage(day: day, onDay: (d) => setState(() => day = d)),
-          const StatsPage(),
-          const RepeatingPage(),
-          const SettingsPage(),
+          for (final p in [
+            const TodayPage(),
+            CalendarPage(day: day, onDay: (d) => setState(() => day = d)),
+            const StatsPage(),
+            const RepeatingPage(),
+            const SettingsPage(),
+          ])
+            SyncRefresh(child: p),
         ]),
         floatingActionButton: add,
         bottomNavigationBar: NavigationBar(

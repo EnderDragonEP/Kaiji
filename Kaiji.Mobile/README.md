@@ -49,8 +49,8 @@ device and aren't part of a backup.
 Or let them sync: Settings › *Sync with PostgreSQL*, with the server set up as in the main
 README's "Sync between your PC and phone". The phone syncs while Kaiji is open and once more as
 you leave it, wherever the server can be reached (your home Wi-Fi, say); changes made elsewhere
-wait and go up later. The password stays in the Android Keystore, and Android's own backup
-leaves it out.
+wait and go up later. Pull any page down to sync right away. The password stays in the Android
+Keystore, and Android's own backup leaves it out.
 
 ## Differences from the PC
 

@@ -141,6 +141,7 @@ Kaiji's database then goes into your Home Assistant backups along with the app's
 - Restoring a backup while syncing replaces the server's data too: the backup becomes everyone's data.
 - When the same entry is changed on two devices before they sync, the change that reaches the server last wins.
 - The phone syncs while Kaiji is open and once more as you leave it; nothing runs in the background. Where the server can't be reached (away from home, unless you have a VPN), changes wait and go up when it can.
+- To sync right away, click **Sync now** at the bottom of the navigation pane (or press F5) on the PC, or pull any page down on the phone.
 - **Turn off** leaves the data on the device and on the server as it is.
 
 The password is kept in Windows Credential Manager on the PC and in the Android Keystore on the phone, never in Kaiji's database, its settings file or a backup. Android's own backup leaves it out too, so a restored phone asks for it again.

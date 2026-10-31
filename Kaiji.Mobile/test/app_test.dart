@@ -161,4 +161,15 @@ void main() {
     expect(state.syncer.enabled, isFalse);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('the pages can be pulled down to sync only while sync is on', (tester) async {
+    final state = await start(tester);
+    expect(find.byType(RefreshIndicator), findsNothing);
+    state.syncer.state = 'on'; // as after Syncer.start, without a server to reach
+    await tester.pumpWidget(KaijiApp(state: state));
+    await tester.tap(nav('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.byType(RefreshIndicator), findsOneWidget); // the page on show
+    state.syncer.state = 'off';
+  });
 }

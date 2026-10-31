@@ -45,16 +45,33 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.pages["calendar"], FIF.CALENDAR, "Calendar")
         self.addSubInterface(self.pages["stats"], FIF.PIE_SINGLE, "Statistics")
         self.addSubInterface(self.pages["repeating"], FIF.SYNC, "Repeating")
+        # shown while sync is on; it doesn't open a page
+        self.sync_item = self.navigationInterface.addItem(
+            "sync", FIF.CLOUD, "Sync now", onClick=self.sync_now, selectable=False,
+            position=NavigationItemPosition.BOTTOM)
         self.addSubInterface(self.pages["settings"], FIF.SETTING, "Settings",
                              NavigationItemPosition.BOTTOM)
         self.stackedWidget.currentChanged.connect(lambda _: self.current_page().activate())
         QShortcut(QKeySequence.New, self, activated=lambda: self.add_entry())
+        QShortcut(QKeySequence.Refresh, self, activated=self.sync_now)          # F5
+        app.syncer.changed.connect(self._sync_changed)
+        self._sync_changed()
 
         self.resize(1320, 880)
         self.setMinimumSize(1100, 700)
         screen = QGuiApplication.primaryScreen().availableGeometry()
         self.move(screen.center() - self.rect().center())
         self.navigationInterface.expand(useAni=False)      # labels shown, like Windows Settings
+
+    def sync_now(self):
+        """A sync round now; how it went shows as an info bar (the Settings page's report)."""
+        self.app.syncer.sync(manual=True)
+
+    def _sync_changed(self):
+        syncer = self.app.syncer
+        self.sync_item.setVisible(syncer.state != "off")
+        self.sync_item.setEnabled(not syncer.busy)
+        self.sync_item.setToolTip(syncer.describe())
 
     def show_page(self, key):
         page = self.pages[key]
